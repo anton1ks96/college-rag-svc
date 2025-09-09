@@ -114,7 +114,9 @@ def ask(req: AskReq, request: Request):
             question=req.question,
             k=req.k,
             min_score=req.min_score,
-            max_ctx_chars=req.max_ctx_chars
+            max_ctx_chars=req.max_ctx_chars,
+            use_reranking=req.use_reranking,
+            debug_reranking=req.debug_reranking,
         )
         return AskResp(**res)
     finally:

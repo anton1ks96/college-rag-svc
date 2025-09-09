@@ -1,10 +1,14 @@
 from typing import Dict, List
+import logging
 from config import settings
 from normalize import normalize_markdown, NormalizationConfig
 from chunking import chunk_student_markdown, ChunkerConfig
 from embeddings import embed_texts
 from qdrant_store import ensure_collection, upsert_chunks, search
+from reranking import rerank_with_fallback, analyze_reranking_impact, RerankResult
 from llm import generate_answer
+
+logger = logging.getLogger(__name__)
 
 
 def index_dataset(dataset_id: str, version: int, title: str | None, text: str, overwrite: bool = True) -> int:
@@ -49,26 +53,107 @@ def index_dataset(dataset_id: str, version: int, title: str | None, text: str, o
     return count
 
 
-def ask_dataset(dataset_id: str, version: int, question: str, k: int | None, min_score: float | None,
-                max_ctx_chars: int | None) -> Dict:
+def ask_dataset(
+        dataset_id: str,
+        version: int,
+        question: str,
+        k: int | None = None,
+        min_score: float | None = None,
+        max_ctx_chars: int | None = None,
+        use_reranking: bool | None = None,
+        debug_reranking: bool = False
+) -> Dict:
     """
-    Поиск по датасету и генерация ответа с цитатами.
+    Поиск по датасету с опциональным reranking и генерация ответа с цитатами.
+
+    Args:
+        dataset_id: ID датасета
+        version: Версия датасета
+        question: Вопрос пользователя
+        k: Количество финальных чанков для LLM
+        min_score: Минимальный score для фильтрации
+        max_ctx_chars: Максимальное количество символов контекста
+        use_reranking: Принудительно включить/выключить reranking
+        debug_reranking: Добавить debug информацию о reranking в metrics
     """
-    k = k or settings.k_top
+    k_final = k or settings.k_top
     min_score = settings.min_score if min_score is None else min_score
     max_ctx_chars = max_ctx_chars or settings.max_ctx_chars
 
+    if use_reranking is None:
+        use_reranking = settings.reranker_enabled
+
+    if use_reranking:
+        k_retrieval = settings.k_retrieval or k_final * 3
+    else:
+        k_retrieval = k_final
+
     q_vec = embed_texts([question])[0] if question else []
     if not q_vec:
-        return {"answer": "Ошибка: не удалось обработать вопрос", "citations": [], "metrics": {}}
+        return {
+            "answer": "Ошибка: не удалось обработать вопрос",
+            "citations": [],
+            "metrics": {"error": "embedding_failed"}
+        }
 
-    hits = search(dataset_id, version, q_vec, k)
+    hits = search(dataset_id, version, q_vec, k_retrieval)
 
-    filtered = [h for h in hits if h[0] >= min_score]
-    contexts: List[dict] = [
-        {"chunk_id": int(p.get("chunk_id", idx)), "text": p["text"], "score": s}
-        for idx, (s, p) in enumerate(filtered)
-    ]
+    if not hits:
+        return {
+            "answer": "Не найдено релевантной информации для ответа на вопрос.",
+            "citations": [],
+            "metrics": {"chunks_found": 0, "reranking_used": False}
+        }
+
+    chunks_for_reranking = []
+    for score, payload in hits:
+        if score >= min_score:
+            chunks_for_reranking.append({
+                "chunk_id": payload.get("chunk_id", 0),
+                "text": payload.get("text", ""),
+                "score": score,
+                "metadata": payload
+            })
+
+    if use_reranking and chunks_for_reranking:
+        logger.info(f"Applying reranking: {len(chunks_for_reranking)} candidates -> top {k_final}")
+
+        reranking_impact = None
+        if debug_reranking:
+            reranking_impact = analyze_reranking_impact(
+                question,
+                chunks_for_reranking,
+                top_k=k_final
+            )
+
+        reranked_chunks = rerank_with_fallback(
+            question=question,
+            chunks=chunks_for_reranking,
+            top_k=k_final,
+            enable_reranking=True
+        )
+
+        contexts = [
+            {
+                "chunk_id": chunk.get("chunk_id", idx),
+                "text": chunk["text"],
+                "score": chunk.get("score", 0.0),
+                "original_score": chunk.get("original_score", 0.0)
+            }
+            for idx, chunk in enumerate(reranked_chunks)
+        ]
+    else:
+        contexts = [
+            {
+                "chunk_id": payload.get("chunk_id", idx),
+                "text": payload["text"],
+                "score": score,
+                "original_score": score
+            }
+            for idx, (score, payload) in enumerate(hits[:k_final])
+            if score >= min_score
+        ]
+        reranking_impact = None
 
     total_chars = 0
     trimmed_contexts = []
@@ -84,23 +169,85 @@ def ask_dataset(dataset_id: str, version: int, question: str, k: int | None, min
         trimmed_contexts.append(ctx)
         total_chars += ctx_len
 
-    system = (
-        "Ты отвечаешь на вопрос пользователя **ТОЛЬКО** по данному контексту."
-        "Если информации нехватает скажи что недостаточно данных"
+    system_prompt = (
+        "Ты отвечаешь на вопрос пользователя **ТОЛЬКО** по данному контексту. "
+        "Если информации недостаточно, скажи что недостаточно данных. "
+        "Будь точным и конкретным в своих ответах."
     )
 
     if trimmed_contexts:
-        answer = generate_answer(question, trimmed_contexts, system_prompt=system)
+        answer = generate_answer(question, trimmed_contexts, system_prompt=system_prompt)
     else:
         answer = "Не найдено релевантной информации для ответа на вопрос."
 
     metrics = {
+        "chunks_found": len(hits),
+        "chunks_after_filtering": len(chunks_for_reranking) if use_reranking else len(contexts),
+        "chunks_after_reranking": len(contexts),
         "chunks_used": len(trimmed_contexts),
-        "top_scores": [round(s, 6) for s, _ in hits[:5]] if hits else [],
+        "reranking_used": use_reranking,
+        "top_scores": [round(ctx["score"], 6) for ctx in contexts[:5]],
         "total_chars": total_chars,
-        "insufficient_data": "Недостаточно данных" in answer
+        "insufficient_data": "недостаточно данных" in answer.lower()
     }
 
-    citations = [{"chunk_id": c["chunk_id"], "score": round(c["score"], 6)} for c in trimmed_contexts]
+    if debug_reranking and reranking_impact:
+        metrics["reranking_impact"] = reranking_impact
 
-    return {"answer": answer, "citations": citations, "metrics": metrics}
+    citations = []
+    for c in trimmed_contexts:
+        citation = {
+            "chunk_id": c["chunk_id"],
+            "score": round(c["score"], 6)
+        }
+        if "original_score" in c and c["original_score"] != c["score"]:
+            citation["original_score"] = round(c["original_score"], 6)
+            citation["score_improvement"] = round(c["score"] - c["original_score"], 6)
+        citations.append(citation)
+
+    return {
+        "answer": answer,
+        "citations": citations,
+        "metrics": metrics
+    }
+
+
+def hybrid_ask_dataset(
+        dataset_id: str,
+        version: int,
+        question: str,
+        **kwargs
+) -> Dict:
+    """
+    Экспериментальный метод с гибридным scoring (vector + reranker).
+    Комбинирует оба score для лучшего результата.
+    """
+    weight = settings.reranker_score_weight
+    k_final = kwargs.get("k", settings.k_top)
+
+    result = ask_dataset(
+        dataset_id=dataset_id,
+        version=version,
+        question=question,
+        use_reranking=True,
+        debug_reranking=True,
+        **kwargs
+    )
+
+    if "reranking_impact" in result.get("metrics", {}):
+        citations = result["citations"]
+        for citation in citations:
+            if "original_score" in citation:
+                hybrid_score = (
+                        weight * citation["score"] +
+                        (1 - weight) * citation["original_score"]
+                )
+                citation["hybrid_score"] = round(hybrid_score, 6)
+
+        citations.sort(key=lambda x: x.get("hybrid_score", x["score"]), reverse=True)
+
+        result["citations"] = citations[:k_final]
+        result["metrics"]["scoring_method"] = "hybrid"
+        result["metrics"]["reranker_weight"] = weight
+
+    return result

@@ -20,6 +20,8 @@ class AskReq(BaseModel):
     k: int | None = None
     min_score: float | None = None
     max_ctx_chars: int | None = None
+    use_reranking: bool | None = None
+    debug_reranking: bool = False
 
 
 class AskResp(BaseModel):
