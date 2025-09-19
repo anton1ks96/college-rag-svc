@@ -8,8 +8,84 @@ from metrics import INDEX_REQUESTS, INDEX_DURATION, ASK_REQUESTS, ASK_DURATION
 from rag import index_dataset, ask_dataset
 import time
 from typing import Optional
+import logging
+from contextlib import asynccontextmanager
+from config import settings
 
-app = FastAPI(title="college-rag-svc", version="0.1.0")
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Управление жизненным циклом приложения.
+    Предзагружаем модели при старте сервиса.
+    """
+    logger.info("Starting model preloading...")
+
+    try:
+        if getattr(settings, "preload_embeddings", True):
+            logger.info("Loading embedding model...")
+            from embeddings import _load_model as load_embedding_model
+            load_embedding_model()
+            logger.info(f"Embedding model loaded: {getattr(settings, 'embedding_model', 'BAAI/bge-m3')}")
+
+        if getattr(settings, "reranker_enabled", False) and getattr(settings, "preload_reranker", True):
+            logger.info("Loading reranker model...")
+            from reranking import _load_reranker_model
+            _load_reranker_model()
+            logger.info(f"Reranker model loaded: {getattr(settings, 'reranker_model', 'BAAI/bge-reranker-v2-m3')}")
+
+        if getattr(settings, "preload_llm_check", True):
+            provider = settings.llm_provider.lower()
+            if provider == "openai":
+                logger.info("Checking OpenAI API availability...")
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=settings.openai_api_key)
+                    client.chat.completions.create(
+                        model=settings.openai_model,
+                        messages=[{"role": "user", "content": "test"}],
+                        max_tokens=1
+                    )
+                    logger.info(f"OpenAI API available, model: {settings.openai_model}")
+                except Exception as e:
+                    logger.warning(f"OpenAI API check failed: {e}")
+
+            elif provider == "ollama":
+                logger.info("Checking Ollama availability...")
+                try:
+                    import ollama
+                    models = ollama.list()
+                    model_names = [m['name'] for m in models.get('models', [])]
+                    if settings.ollama_model in model_names or any(settings.ollama_model in m for m in model_names):
+                        logger.info(f"Ollama model available: {settings.ollama_model}")
+                    else:
+                        logger.warning(f"Ollama model {settings.ollama_model} not found. Available: {model_names}")
+                        logger.info(f"Attempting to pull Ollama model {settings.ollama_model}...")
+                        ollama.pull(settings.ollama_model)
+                        logger.info(f"Ollama model pulled: {settings.ollama_model}")
+                except Exception as e:
+                    logger.warning(f"Ollama check failed: {e}")
+
+        logger.info("All models preloaded successfully")
+
+    except Exception as e:
+        logger.error(f"Error during model preloading: {e}")
+
+    yield
+
+    logger.info("Shutting down, unloading models...")
+    try:
+        from embeddings import unload_model
+        from reranking import unload_reranker_model
+        unload_model()
+        unload_reranker_model()
+        logger.info("Models unloaded")
+    except Exception as e:
+        logger.error(f"Error during model unloading: {e}")
+
+app = FastAPI(title="college-rag-svc", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,31 +106,42 @@ def healthz():
 
 @app.get("/readyz")
 def readyz():
-    # TODO: проверка соединения к Qdrant (ping)
-    return {"ready": True}
+    """Проверка готовности сервиса.
+    Проверяет загрузку моделей и доступность Qdrant.
+    """
+    ready_status = {"ready": True, "models": {}}
+
+    try:
+        from embeddings import _model
+        ready_status["models"]["embeddings"] = _model is not None
+    except:
+        ready_status["models"]["embeddings"] = False
+
+    if getattr(settings, "reranker_enabled", False):
+        try:
+            from reranking import _reranker_model
+            ready_status["models"]["reranker"] = _reranker_model is not None
+        except:
+            ready_status["models"]["reranker"] = False
+
+    try:
+        from qdrant_store import get_qdrant_client
+        client = get_qdrant_client()
+        client.get_collections()
+        ready_status["qdrant"] = True
+    except:
+        ready_status["qdrant"] = False
+        ready_status["ready"] = False
+
+    if not all(ready_status["models"].values()):
+        ready_status["ready"] = False
+
+    return ready_status
 
 
 @app.get("/metrics")
 def metrics():
     return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-
-# Старый endpoint для обратной совместимости
-@app.post("/index", response_model=IndexResp)
-def index(req: IndexReq, request: Request):
-    INDEX_REQUESTS.inc()
-    t0 = time.time()
-    try:
-        chunks = index_dataset(
-            dataset_id=req.dataset_id,
-            version=req.version,
-            title=req.title,
-            text=req.text,
-            overwrite=req.overwrite,
-        )
-        return {"ok": True, "chunks": chunks}
-    finally:
-        INDEX_DURATION.observe(time.time() - t0)
 
 
 @app.post("/index/file", response_model=IndexResp)

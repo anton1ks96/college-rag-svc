@@ -1,14 +1,16 @@
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # service
-    rag_service_token: str = "dev-secret-token"
+    rag_service_token: str | None = os.getenv("RAG_SERVICE_TOKEN", None)
     port: int = 8001
 
     # qdrant
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "dataset_chunks"
-    qdrant_distance: str = "COSINE"  # TODO: поддержка COSINE / DOT
+    qdrant_distance: str = "COSINE"
 
     # rag params
     chunk_size: int = 1200
@@ -35,12 +37,20 @@ class Settings(BaseSettings):
     # embeddings
     embedding_provider: str = "sbert"   # openai | sbert
     embedding_model: str = "BAAI/bge-m3"
+    embedding_use_fp16: bool = True  # Использовать FP16 для экономии памяти
+    embedding_batch_size: int = 12  # Размер батча для эмбеддингов
+    embedding_max_length: int = 8192  # Максимальная длина текста
+
+    # model preloading
+    preload_embeddings: bool = True  # Предзагружать embedding модель при старте
+    preload_reranker: bool = True  # Предзагружать reranker модель при старте
+    preload_llm_check: bool = True  # Проверять доступность LLM при старте
 
     # llm
     llm_provider: str = "ollama"
-    ollama_model: str = "gemma3:1b"
+    ollama_model: str = "qwen3:0.6b"
     openai_api_key: str | None = None
-    openai_model: str = "gemma3:1b"
+    openai_model: str = "gpt-4.1-nano"
     openai_temperature: float = 0.2
     openai_max_tokens: int = 800
 

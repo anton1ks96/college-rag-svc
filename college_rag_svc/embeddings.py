@@ -1,5 +1,8 @@
 from typing import List
 from config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     from FlagEmbedding import BGEM3FlagModel
@@ -16,6 +19,7 @@ def _load_model():
     global _model
 
     if _model is not None:
+        logger.debug("Embedding model already loaded")
         return _model
 
     if BGEM3FlagModel is None:
@@ -27,7 +31,9 @@ def _load_model():
     model_name = getattr(settings, "embedding_model", "BAAI/bge-m3")
     use_fp16 = bool(getattr(settings, "embedding_use_fp16", True))
 
+    logger.info(f"Loading embedding model: {model_name} (fp16={use_fp16})")
     _model = BGEM3FlagModel(model_name, use_fp16=use_fp16)
+    logger.info(f"Embedding model loaded successfully: {model_name}")
     return _model
 
 
@@ -61,4 +67,7 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
 
 def unload_model() -> None:
     global _model
-    _model = None
+    if _model is not None:
+        logger.info("Unloading embedding model")
+        _model = None
+        logger.info("Embedding model unloaded")
