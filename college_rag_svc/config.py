@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     # qdrant
     qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: str | None = None
     qdrant_collection: str = "dataset_chunks"
     qdrant_distance: str = "COSINE"
 

@@ -4,7 +4,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 from config import settings
 
-_client = QdrantClient(url=settings.qdrant_url)
+_client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
 
 def _distance() -> Distance:
     return Distance.COSINE
