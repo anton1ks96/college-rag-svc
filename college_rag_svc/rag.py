@@ -155,28 +155,23 @@ def ask_dataset(
         ]
         reranking_impact = None
 
-    total_chars = 0
-    trimmed_contexts = []
-    for ctx in contexts:
-        ctx_len = len(ctx["text"])
-        if total_chars + ctx_len > max_ctx_chars:
-            remaining = max_ctx_chars - total_chars
-            if remaining > 100:
-                ctx_copy = ctx.copy()
-                ctx_copy["text"] = ctx["text"][:remaining] + "..."
-                trimmed_contexts.append(ctx_copy)
-            break
-        trimmed_contexts.append(ctx)
-        total_chars += ctx_len
-
     system_prompt = (
-        "Ты отвечаешь на вопрос пользователя **ТОЛЬКО** по данному контексту. "
-        "Если информации недостаточно, скажи что недостаточно данных. "
-        "Будь точным и конкретным в своих ответах."
+        "Ты ассистент для ответов на вопросы на основе предоставленного контекста.\n\n"
+        "КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА:\n"
+        "1. Отвечай СТРОГО на основе информации из тегов <context>. "
+        "ЗАПРЕЩЕНО использовать твои внутренние знания или предположения.\n"
+        "2. Если в контексте НЕТ информации для ответа на вопрос - честно скажи: "
+        "\"В предоставленных материалах недостаточно информации для ответа на этот вопрос.\"\n"
+        "3. Если контекст содержит противоречивую, неполную или неясную информацию - "
+        "укажи на это явно, не придумывай недостающие детали.\n"
+        "4. Цитируй факты из контекста напрямую, не перефразируй если не уверен.\n"
+        "5. Если вопрос частично покрыт контекстом - ответь только на ту часть, которая есть, "
+        "и укажи что остальное отсутствует.\n\n"
+        "НИКОГДА не додумывай, не предполагай, не обобщай за пределами данного контекста."
     )
 
-    if trimmed_contexts:
-        answer = generate_answer(question, trimmed_contexts, system_prompt=system_prompt)
+    if contexts:
+        answer = generate_answer(question, contexts, system_prompt=system_prompt)
     else:
         answer = "Не найдено релевантной информации для ответа на вопрос."
 
@@ -184,10 +179,9 @@ def ask_dataset(
         "chunks_found": len(hits),
         "chunks_after_filtering": len(chunks_for_reranking) if use_reranking else len(contexts),
         "chunks_after_reranking": len(contexts),
-        "chunks_used": len(trimmed_contexts),
+        "chunks_used": len(contexts),
         "reranking_used": use_reranking,
         "top_scores": [round(ctx["score"], 6) for ctx in contexts[:5]],
-        "total_chars": total_chars,
         "insufficient_data": "недостаточно данных" in answer.lower()
     }
 
@@ -195,7 +189,7 @@ def ask_dataset(
         metrics["reranking_impact"] = reranking_impact
 
     citations = []
-    for c in trimmed_contexts:
+    for c in contexts:
         citation = {
             "chunk_id": c["chunk_id"],
             "score": round(c["score"], 6)

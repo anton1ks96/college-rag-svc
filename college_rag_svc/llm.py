@@ -7,10 +7,10 @@ def generate_answer(question: str, contexts: list[dict], system_prompt: str) -> 
     if provider == "openai":
         from openai import OpenAI
         client = OpenAI(api_key=settings.openai_api_key)
-        ctx = "\n\n".join([f"[Chunk {c['chunk_id']}]\n{c['text']}" for c in contexts])
+        ctx = "\n\n".join([f"<chunk id=\"{c['chunk_id']}\">\n{c['text']}\n</chunk>" for c in contexts])
         messages = [
           {"role": "system", "content": system_prompt},
-          {"role": "user", "content": f"Вопрос: {question}\n\nКонтекст:\n{ctx}"}
+          {"role": "user", "content": f"Вопрос: {question}\n\n<context>\n{ctx}\n</context>"}
         ]
         resp = client.chat.completions.create(
           model=settings.openai_model,
@@ -21,10 +21,10 @@ def generate_answer(question: str, contexts: list[dict], system_prompt: str) -> 
         return resp.choices[0].message.content
 
     elif provider == "ollama":
-        ctx = "\n\n".join([f"[Chunk {c['chunk_id']}]\n{c['text']}" for c in contexts])
+        ctx = "\n\n".join([f"<chunk id=\"{c['chunk_id']}\">\n{c['text']}\n</chunk>" for c in contexts])
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Вопрос: {question}\n\nКонтекст:\n{ctx}"}
+            {"role": "user", "content": f"Вопрос: {question}\n\n<context>\n{ctx}\n</context>"}
         ]
         response = ollama.chat(
             model=settings.ollama_model,

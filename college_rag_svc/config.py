@@ -19,7 +19,6 @@ class Settings(BaseSettings):
     k_top: int = 6  # Финальное количество чанков после reranking
     k_retrieval: int = 20  # Количество чанков для initial retrieval (больше чем k_top)
     min_score: float = 0.0
-    max_ctx_chars: int = 8000
 
     # reranking параметры
     reranker_enabled: bool = True
