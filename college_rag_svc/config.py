@@ -8,8 +8,8 @@ class Settings(BaseSettings):
     port: int = 8001
 
     # qdrant
-    qdrant_url: str = "http://localhost:6333"
-    qdrant_api_key: str | None = None
+    qdrant_url: str = os.getenv("QDRANT_URL", "http://localhost:6333")
+    qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
     qdrant_collection: str = "dataset_chunks"
     qdrant_distance: str = "COSINE"
 
@@ -48,6 +48,7 @@ class Settings(BaseSettings):
 
     # llm
     llm_provider: str = "ollama"
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     ollama_model: str = "qwen3:0.6b"
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-nano"

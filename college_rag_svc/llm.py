@@ -26,7 +26,8 @@ def generate_answer(question: str, contexts: list[dict], system_prompt: str) -> 
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Вопрос: {question}\n\n<context>\n{ctx}\n</context>"}
         ]
-        response = ollama.chat(
+        client = ollama.Client(host=settings.ollama_base_url)
+        response = client.chat(
             model=settings.ollama_model,
             messages=messages,
             options={
