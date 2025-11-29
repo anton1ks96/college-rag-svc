@@ -46,14 +46,25 @@ class Settings(BaseSettings):
     preload_reranker: bool = True  # Предзагружать reranker модель при старте
     preload_llm_check: bool = True  # Проверять доступность LLM при старте
 
-    # llm
+    # llm - провайдер: "ollama" | "openai" | "vllm"
     llm_provider: str = "ollama"
+
+    # Ollama настройки
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     ollama_model: str = "qwen3:0.6b"
+    ollama_temperature: float = 0.7
+
+    # OpenAI настройки
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-nano"
     openai_temperature: float = 0.2
     openai_max_tokens: int = 800
+
+    # vLLM настройки (OpenAI-compatible API)
+    vllm_base_url: str = os.getenv("VLLM_BASE_URL", "http://localhost:10000")
+    vllm_model: str = os.getenv("VLLM_MODEL", "Qwen/Qwen3-0.6B-Instruct")
+    vllm_api_key: str = os.getenv("VLLM_API_KEY", "my_secret_key")
+    vllm_temperature: float = 0.7
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 

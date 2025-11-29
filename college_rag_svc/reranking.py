@@ -5,6 +5,7 @@
 
 from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass
+import asyncio
 import logging
 from config import settings
 
@@ -284,3 +285,29 @@ def analyze_reranking_impact(
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+async def rerank_chunks_async(
+    question: str,
+    chunks: List[Dict[str, Any]],
+    top_k: Optional[int] = None,
+    min_score: Optional[float] = None,
+    batch_size: Optional[int] = None,
+    normalize_scores: bool = True
+) -> List[RerankResult]:
+    return await asyncio.to_thread(
+        rerank_chunks,
+        question, chunks, top_k, min_score, batch_size, normalize_scores
+    )
+
+
+async def rerank_with_fallback_async(
+    question: str,
+    chunks: List[Dict[str, Any]],
+    top_k: Optional[int] = None,
+    enable_reranking: Optional[bool] = None
+) -> List[Dict[str, Any]]:
+    return await asyncio.to_thread(
+        rerank_with_fallback,
+        question, chunks, top_k, enable_reranking
+    )

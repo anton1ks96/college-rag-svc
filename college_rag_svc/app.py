@@ -5,7 +5,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from models import IndexReq, IndexResp, AskReq, AskResp
 from middleware import RequestIDMiddleware, ServiceAuthMiddleware
 from metrics import INDEX_REQUESTS, INDEX_DURATION, ASK_REQUESTS, ASK_DURATION
-from rag import index_dataset, ask_dataset
+from rag import index_dataset, ask_dataset_async
 import time
 from typing import Optional
 import logging
@@ -191,11 +191,11 @@ async def index_file(
 
 
 @app.post("/ask", response_model=AskResp)
-def ask(req: AskReq, request: Request):
+async def ask(req: AskReq, request: Request):
     ASK_REQUESTS.inc()
     t0 = time.time()
     try:
-        res = ask_dataset(
+        res = await ask_dataset_async(
             dataset_id=req.dataset_id,
             version=req.version,
             question=req.question,

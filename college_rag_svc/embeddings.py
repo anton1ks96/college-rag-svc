@@ -1,4 +1,5 @@
 from typing import List
+import asyncio
 from config import settings
 import logging
 
@@ -71,3 +72,7 @@ def unload_model() -> None:
         logger.info("Unloading embedding model")
         _model = None
         logger.info("Embedding model unloaded")
+
+
+async def embed_texts_async(texts: List[str]) -> List[List[float]]:
+    return await asyncio.to_thread(embed_texts, texts)

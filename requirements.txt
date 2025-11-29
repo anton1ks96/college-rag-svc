@@ -11,7 +11,7 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 
 # Vector store
-qdrant-client==1.7.0
+qdrant-client[async]>=1.7.0
 
 # Embeddings and ML
 torch>=2.0.0,<3.0.0

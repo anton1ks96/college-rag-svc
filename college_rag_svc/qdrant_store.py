@@ -1,10 +1,22 @@
 import hashlib
 from typing import List, Dict, Tuple
-from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient, AsyncQdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 from config import settings
 
 _client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+
+_async_client: AsyncQdrantClient | None = None
+
+
+def get_async_client() -> AsyncQdrantClient:
+    global _async_client
+    if _async_client is None:
+        _async_client = AsyncQdrantClient(
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key
+        )
+    return _async_client
 
 def _distance() -> Distance:
     return Distance.COSINE
@@ -44,6 +56,26 @@ def search(dataset_id: str, version: int, query_vector: List[float], k: int) -> 
         FieldCondition(key="version", match=MatchValue(value=version)),
     ])
     hits = _client.search(
+        collection_name=settings.qdrant_collection,
+        query_vector=query_vector,
+        limit=k,
+        query_filter=flt
+    )
+    return [(float(h.score), h.payload) for h in hits]
+
+
+async def search_async(
+    dataset_id: str,
+    version: int,
+    query_vector: List[float],
+    k: int
+) -> List[Tuple[float, Dict]]:
+    client = get_async_client()
+    flt = Filter(must=[
+        FieldCondition(key="dataset_id", match=MatchValue(value=dataset_id)),
+        FieldCondition(key="version", match=MatchValue(value=version)),
+    ])
+    hits = await client.search(
         collection_name=settings.qdrant_collection,
         query_vector=query_vector,
         limit=k,
