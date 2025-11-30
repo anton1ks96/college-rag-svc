@@ -9,6 +9,10 @@ _client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
 _async_client: AsyncQdrantClient | None = None
 
 
+def get_qdrant_client() -> QdrantClient:
+    return _client
+
+
 def get_async_client() -> AsyncQdrantClient:
     global _async_client
     if _async_client is None:
@@ -75,10 +79,10 @@ async def search_async(
         FieldCondition(key="dataset_id", match=MatchValue(value=dataset_id)),
         FieldCondition(key="version", match=MatchValue(value=version)),
     ])
-    hits = await client.search(
+    hits = await client.query_points(
         collection_name=settings.qdrant_collection,
-        query_vector=query_vector,
+        query=query_vector,
         limit=k,
         query_filter=flt
     )
-    return [(float(h.score), h.payload) for h in hits]
+    return [(float(h.score), h.payload) for h in hits.points]
