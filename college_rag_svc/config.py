@@ -8,12 +8,13 @@ class Settings(BaseSettings):
     port: int = 8001
 
     # qdrant
-    qdrant_url: str = os.getenv("QDRANT_URL", "http://localhost:6333")
+    qdrant_url: str = os.getenv("QDRANT_URL", "http://10.3.0.70:6333")
     qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
     qdrant_collection: str = "dataset_chunks"
     qdrant_distance: str = "COSINE"
 
     # rag params
+    max_ctx_chars: int = 20000
     chunk_size: int = 1200
     chunk_overlap: int = 100
     k_top: int = 6  # Финальное количество чанков после reranking
@@ -58,15 +59,16 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str = "gpt-4.1-nano"
     openai_temperature: float = 0.2
-    openai_max_tokens: int = 800
+    openai_max_tokens: int = 2000
 
     # vLLM настройки (OpenAI-compatible API)
     vllm_base_url: str = os.getenv("VLLM_BASE_URL", "http://localhost:10000")
-    vllm_model: str = os.getenv("VLLM_MODEL", "Qwen/Qwen3-0.6B-Instruct")
+    vllm_model: str = os.getenv("VLLM_MODEL", "Qwen/Qwen3-0.6B")
     vllm_api_key: str = os.getenv("VLLM_API_KEY", "my_secret_key")
     vllm_temperature: float = 0.7
+    vllm_max_tokens: int = 5000
 
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
 
 settings = Settings()

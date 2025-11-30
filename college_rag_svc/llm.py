@@ -6,7 +6,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 _openai_client: AsyncOpenAI | None = None
-_vllm_client: AsyncOpenAI | None = None
 
 
 def _get_openai_client() -> AsyncOpenAI:
@@ -14,16 +13,6 @@ def _get_openai_client() -> AsyncOpenAI:
     if _openai_client is None:
         _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
     return _openai_client
-
-
-def _get_vllm_client() -> AsyncOpenAI:
-    global _vllm_client
-    if _vllm_client is None:
-        _vllm_client = AsyncOpenAI(
-            base_url=f"{settings.vllm_base_url}/v1",
-            api_key=settings.vllm_api_key,
-        )
-    return _vllm_client
 
 
 async def generate_answer_async(
@@ -54,14 +43,27 @@ async def generate_answer_async(
         return resp.choices[0].message.content
 
     elif provider == "vllm":
-        client = _get_vllm_client()
-        resp = await client.chat.completions.create(
-            model=settings.vllm_model,
-            messages=messages,
-            temperature=settings.vllm_temperature,
-            max_tokens=settings.vllm_max_tokens
-        )
-        return resp.choices[0].message.content
+        async with httpx.AsyncClient(timeout=500.0) as client:
+            resp = await client.post(
+                f"{settings.vllm_base_url}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {settings.vllm_api_key}"},
+                json={
+                    "model": settings.vllm_model,
+                    "messages": messages,
+                    "temperature": settings.vllm_temperature,
+                    "max_tokens": settings.vllm_max_tokens
+                }
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            choice = data["choices"][0]
+            content = choice["message"].get("content", "").strip()
+            reasoning = choice["message"].get("reasoning_content", "").strip()
+
+            if reasoning:
+                return f"<think>{reasoning}</think>{content}"
+            return content
 
     elif provider == "ollama":
         async with httpx.AsyncClient(timeout=500.0) as client:
